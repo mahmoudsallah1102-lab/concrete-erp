@@ -1038,50 +1038,37 @@ function refresh(){ensure();const s=settings();document.getElementById('uName').
 boot();
 </script>
 
-<!-- Firebase Shared Sync - added -->
+<!-- Firebase Shared Sync v2 -->
+<script>
+(function(){ var b=document.createElement('div'); b.id='syncBadge'; b.style.cssText='position:fixed;top:78px;right:12px;z-index:2147483647;background:#c9a227;color:#071422;padding:8px 12px;border-radius:20px;font-size:12px;font-weight:800;box-shadow:0 4px 16px rgba(0,0,0,.3)'; b.textContent='☁️ جاري المزامنة...'; document.addEventListener('DOMContentLoaded',function(){ document.body.appendChild(b); }); if(document.body) document.body.appendChild(b); })();
+</script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-const firebaseConfig = {
-  apiKey: "AIzaSyBYIJ0ANToIq5jQyeKOChOFdPbOjYLJcI",
-  authDomain: "concrete-erp-71c1a.firebaseapp.com",
-  projectId: "concrete-erp-71c1a",
-  storageBucket: "concrete-erp-71c1a.firebasestorage.app",
-  messagingSenderId: "174496583725",
-  appId: "1:174496583725:web:25cc248a737c198825e8a4",
-  measurementId: "G-KWC1PGR7XT"
-};
-const KEYS = ['baron_clients','baron_sales','baron_payments','baron_suppliers','baron_purchases','baron_supplier_payments','baron_prices','baron_materials','baron_log','baron_archives','baron_stock','baron_stock_moves','baron_expenses','baron_treasury','baron_formulas','baron_settings','baron_users','baron_salt'];
-let lastRemote = 0, lastLocalPush = 0, syncing = false, timer=null;
-try{
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  const ref = doc(db, "shared", "state");
-  const status = document.createElement('div');
-  status.id='syncStatus'; status.style.cssText='position:fixed;top:70px;left:12px;z-index:9999;background:#0b2540;color:#fff;padding:6px 10px;border-radius:20px;font-size:11px;box-shadow:0 4px 14px rgba(0,0,0,.2)';
-  status.textContent='☁️ جاري المزامنة...'; document.body.appendChild(status);
-  const collect=()=>{ const data={}; KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!==null) data[k]=v; }); return data; };
-  const applyRemote=(d)=>{ if(!d||!d.data) return; syncing=true; Object.entries(d.data).forEach(([k,v])=>{ try{ localStorage.setItem(k,v);}catch(e){} }); localStorage.setItem('baron_last_sync', String(d.ts||0)); syncing=false; };
-  const push=async()=>{ if(syncing) return; const ts=Date.now(); lastLocalPush=ts; try{ await setDoc(ref,{ts, data:collect()},{merge:true}); status.textContent='☁️ محفوظ ومشترك ✓'; }catch(e){ status.textContent='⚠️ مش متصل - محفوظ على الجهاز'; } };
-  const schedule=()=>{ status.textContent='☁️ جاري الحفظ...'; clearTimeout(timer); timer=setTimeout(push,800); };
-  const origSet = localStorage.setItem.bind(localStorage);
-  // Patch store() path: observe localStorage changes via polling + patch
-  // We patch by wrapping: any call to store() ends with localStorage.setItem, so intercept it
-  localStorage.setItem = function(k,v){ origSet(k,v); if(KEYS.includes(k) && !syncing) schedule(); };
-  // Initial load: if cloud has data and local is empty / older, use cloud then reload once
-  const snap = await getDoc(ref);
+const firebaseConfig = { apiKey: "AIzaSyBYIJ0ANToIq5jQyeKOChOFdPbOjYLJcI", authDomain: "concrete-erp-71c1a.firebaseapp.com", projectId: "concrete-erp-71c1a", storageBucket: "concrete-erp-71c1a.firebasestorage.app", messagingSenderId: "174496583725", appId: "1:174496583725:web:25cc248a737c198825e8a4", measurementId: "G-KWC1PGR7XT" };
+const KEYS = ['baron_clients','baron_sales','baron_payments','baron_suppliers','baron_purchases','baron_supplier_payments','baron_prices','baron_materials','baron_log','baron_archives','baron_stock','baron_stock_moves','baron_expenses','baron_treasury','baron_formulas','baron_settings','baron_users'];
+const badge = ()=>document.getElementById('syncBadge');
+const setBadge=(t)=>{ const e=badge(); if(e) e.textContent=t; };
+(async()=>{
+ try{
+  const app=initializeApp(firebaseConfig); const db=getFirestore(app); const ref=doc(db,"shared","state");
+  let lastPushHash='', lastRemoteTs=0, applying=false;
+  const collect=()=>{ const d={}; KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!==null) d[k]=v; }); return d; };
+  const hash=(o)=>{ try{ return JSON.stringify(o).length+'-'+Object.keys(o).length; }catch(e){ return ''; } };
+  const push=async()=>{ if(applying) return; const data=collect(); const h=hash(data); if(h===lastPushHash) return; lastPushHash=h; const ts=Date.now(); try{ await setDoc(ref,{ts,data}); setBadge('☁️ محفوظ ومشترك ✓'); }catch(e){ console.log('push err',e); setBadge('⚠️ مش متصل - محفوظ على الجهاز'); } };
+  const snap=await getDoc(ref);
   if(snap.exists()){
-    const d=snap.data(); lastRemote=d.ts||0;
-    const localTs = Number(localStorage.getItem('baron_last_sync')||0);
-    const localEmpty = KEYS.every(k=>!localStorage.getItem(k));
-    if(localEmpty || (d.ts && d.ts>localTs && !sessionStorage.getItem('baron_synced'))){
-      applyRemote(d); sessionStorage.setItem('baron_synced','1'); location.reload(); return;
+    const d=snap.data(); lastRemoteTs=d.ts||0;
+    const localEmpty=KEYS.every(k=>!localStorage.getItem(k));
+    if(localEmpty && d.data && Object.keys(d.data).length>0){
+      applying=true; Object.entries(d.data).forEach(([k,v])=>{ try{ localStorage.setItem(k,v);}catch(e){} }); applying=false; setBadge('☁️ تم تحميل البيانات المشتركة ✓'); setTimeout(()=>location.reload(),600); return;
     }
-    status.textContent='☁️ متصل - بيانات مشتركة ✓';
+    setBadge('☁️ متصل - بيانات مشتركة ✓'); lastPushHash=hash(collect());
   } else { await push(); }
-  onSnapshot(ref,(s)=>{ if(!s.exists()) return; const d=s.data(); if(!d.ts || d.ts===lastRemote || d.ts===lastLocalPush) return; lastRemote=d.ts; if(confirm('في تعديل جديد من جهاز تاني، تحدث الصفحة عشان تشوفه؟')){ applyRemote(d); location.reload(); } });
-  setInterval(()=>{ if(!syncing) push(); }, 30000);
-}catch(e){ console.log('sync off', e); }
+  onSnapshot(ref,(s)=>{ if(!s.exists()) return; const d=s.data(); if(!d.ts||d.ts===lastRemoteTs) return; lastRemoteTs=d.ts; if(confirm('في تعديل جديد من جهاز تاني، تحدّث الصفحة عشان تشوفه؟')){ applying=true; Object.entries(d.data||{}).forEach(([k,v])=>{ try{ localStorage.setItem(k,v);}catch(e){} }); applying=false; location.reload(); } });
+  setInterval(push, 3000);
+ }catch(e){ console.log('sync err',e); setBadge('⚠️ المزامنة مش شغالة - افتح Console'); }
+})();
 </script>
 </body>
 </html>
